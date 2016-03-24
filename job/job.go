@@ -2,7 +2,7 @@ package job
 
 import (
 	"encoding/json"
-	"magi/pool"
+	"magi/cluster"
 	"strconv"
 	"time"
 
@@ -37,7 +37,7 @@ type Data struct {
 }
 
 // Add adds a job to queue via a DisquePool
-func Add(pool *pool.DisquePool, queueName string, body string, ETA time.Time, options *map[string]string) (*Job, error) {
+func Add(cluster *cluster.DisqueCluster, queueName string, body string, ETA time.Time, options *map[string]string) (*Job, error) {
 	job := &Job{
 		QueueName: queueName,
 		ETA:       ETA,
@@ -60,11 +60,12 @@ func Add(pool *pool.DisquePool, queueName string, body string, ETA time.Time, op
 			UpdatedAt: now,
 		},
 	)
-	id, err := pool.Add(queueName, string(data), timeout, &_options)
+	id, err := cluster.Add(queueName, string(data), timeout, &_options)
 	if err != nil {
 		return nil, err
 	}
 	job.ID = id
+	job.Body = body
 	return job, nil
 }
 
