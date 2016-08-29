@@ -3,10 +3,9 @@ package job
 import (
 	"encoding/json"
 	"magi/cluster"
-	"strconv"
 	"time"
 
-	"github.com/zencoder/disque-go/disque"
+	"github.com/goware/disque"
 )
 
 // JobTimeout is the default job timeout
@@ -20,7 +19,7 @@ type Job struct {
 	ETA       time.Time
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	Raw       *disque.JobDetails
+	Raw       *disque.Job
 }
 
 func (job *Job) String() string {
@@ -36,21 +35,22 @@ type Data struct {
 	UpdatedAt time.Time
 }
 
-// Add adds a job to queue via a DisquePool
-func Add(cluster *cluster.DisqueCluster, queueName string, body string, ETA time.Time, options *map[string]string) (*Job, error) {
+// Add adds a job to queue
+func Add(c *cluster.DisqueCluster, queueName string, body string, ETA time.Time, config *cluster.DisqueOpConfig) (*Job, error) {
 	job := &Job{
 		QueueName: queueName,
 		ETA:       ETA,
 	}
-	timeout, _ := time.ParseDuration(JobTimeout)
+	if config == nil {
+		config = &cluster.DisqueOpConfig{}
+	}
 	// Calculate the delay
 	now := time.Now()
 	job.CreatedAt = now
 	job.UpdatedAt = now
-	delay := ETA.Sub(now).Seconds()
-	_options := make(map[string]string)
-	if delay > 0 {
-		_options["DELAY"] = strconv.Itoa(int(delay))
+	delay := ETA.Sub(now)
+	if delay.Seconds() > 0 {
+		config.Delay = delay
 	}
 	data, _ := json.Marshal(
 		&Data{
@@ -60,25 +60,25 @@ func Add(cluster *cluster.DisqueCluster, queueName string, body string, ETA time
 			UpdatedAt: now,
 		},
 	)
-	id, err := cluster.Add(queueName, string(data), timeout, &_options)
+	_job, err := c.Add(queueName, string(data), config)
 	if err != nil {
 		return nil, err
 	}
-	job.ID = id
+	job.ID = _job.ID
 	job.Body = body
 	return job, nil
 }
 
 // FromDetails creates a Job instance using details data
-func FromDetails(details *disque.JobDetails) (*Job, error) {
+func FromDetails(details *disque.Job) (*Job, error) {
 	var data Data
-	err := json.Unmarshal([]byte(details.Message), &data)
+	err := json.Unmarshal([]byte(details.Data), &data)
 	if err != nil {
 		return nil, err
 	}
 	job := &Job{
-		ID:        details.JobId,
-		QueueName: details.QueueName,
+		ID:        details.ID,
+		QueueName: details.Queue,
 		Body:      data.Body,
 		ETA:       data.ETA,
 		CreatedAt: data.CreatedAt,

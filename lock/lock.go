@@ -1,6 +1,6 @@
 /*
 
-The Redlock implementaion is heavily based on the redsync project by Mahmud Ridwan (https://github.com/hjr265/redsync)
+The Redlock implementaion is heavily based on the redsync project by Mahmud Ridwan (https://github.com/hjr265/redsync.go)
 
 Copyright (c) 2014, Mahmud Ridwan
 All rights reserved.
@@ -51,7 +51,7 @@ const (
 	// DefaultDuration is the default duration of the lock
 	DefaultDuration = 8 * time.Second
 	// DefaultAttempts is the default attempts for acquiring lock
-	DefaultAttempts = 16
+	DefaultAttempts = 8
 	// DefaultDelay is the default delay between attempts
 	DefaultDelay = 512 * time.Millisecond
 	// DefaultFactor is the default drift factor
@@ -84,13 +84,15 @@ type Lock struct {
 // CreateLock creates a lock attempt on the job by job id
 func CreateLock(cluster *cluster.RedisCluster, id string) *Lock {
 	lock := &Lock{
-		Key:      id,
-		Duration: DefaultDuration,
-		Attempts: DefaultAttempts,
-		Delay:    DefaultDelay,
-		Factor:   DefaultFactor,
-		Quorum:   cluster.GetQuorum(),
-		Cluster:  cluster,
+		Key:       id,
+		Duration:  DefaultDuration,
+		Attempts:  DefaultAttempts,
+		Delay:     DefaultDelay,
+		Factor:    DefaultFactor,
+		Quorum:    cluster.GetQuorum(),
+		Cluster:   cluster,
+		arControl: make(chan string, 2),
+		arResult:  make(chan string, 2),
 	}
 	return lock
 }
@@ -180,15 +182,17 @@ func (lock *Lock) Release() (bool, error) {
 	if lock.value == "" {
 		return false, ErrLockEmptyLock
 	}
-	// Take internal mutexes
+	// Take the lock mutex
 	lock.lockMutex.Lock()
 	defer lock.lockMutex.Unlock()
-	lock.updateMutex.Lock()
-	defer lock.updateMutex.Unlock()
 	// Stop auto renew if necessary
 	if lock.ar {
 		lock.StopAutoRenew()
 	}
+	// Take the update mutex
+	// This must be taken after StopAutoRenew to allow for terminating ar
+	lock.updateMutex.Lock()
+	defer lock.updateMutex.Unlock()
 	// Release locks
 	n := 0
 	pools := lock.Cluster.GetPools()
@@ -225,6 +229,11 @@ func (lock *Lock) Extend(duration time.Duration) (bool, error) {
 	}
 	result, err := lock.extend(duration)
 	return result, err
+}
+
+// IsActive returns whether the lock is acquired
+func (lock *Lock) IsActive() bool {
+	return lock.value != ""
 }
 
 // Internal extend, does not check for auto renew status
@@ -306,6 +315,10 @@ func (lock *Lock) autoRenew() {
 			// Sleep till next renewal
 			sleepDuration := time.Duration(int64(float64(lock.Duration) * 0.5))
 			time.Sleep(sleepDuration)
+			// After wake up, check if lock is released
+			if lock.value == "" {
+				return
+			}
 			// Extend lock
 			result, err := lock.extend(lock.Duration)
 			if err != nil {
@@ -321,8 +334,8 @@ func (lock *Lock) autoRenew() {
 
 // Redis script for releasing lock
 var releaseLockScript = `
-  if redis.call("GET", KEY[1]) == ARGV[1] then
-    return redis.call("DEL", KEY[1])
+  if redis.call("GET", KEYS[1]) == ARGV[1] then
+    return redis.call("DEL", KEYS[1])
   else
     return 0
   end
@@ -331,7 +344,7 @@ var releaseLock = redis.NewScript(1, releaseLockScript)
 
 // Redis script for extending lock
 var extendLockScript = `
-  if redis.call("GET", KEY[1]) == ARGV[1] then
+  if redis.call("GET", KEYS[1]) == ARGV[1] then
     return redis.call("SET", KEYS[1], ARGV[1], "XX", "PX", ARGV[2])
   else
     return "ERR"

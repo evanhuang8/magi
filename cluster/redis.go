@@ -16,45 +16,63 @@ func GetKey(key string) string {
 
 // RedisCluster is a struct representing a group of connections pools to the target redis instances
 type RedisCluster struct {
-	hosts []map[string]interface{}
-	pools []*redis.Pool
+	pools  []*redis.Pool
+	config *RedisClusterConfig
+}
+
+// RedisClusterConfig is the config struct for creating a redis locking cluster
+type RedisClusterConfig struct {
+	Hosts []map[string]interface{}
 }
 
 // NewRedisCluster creates a redis connection pool using hosts information
-func NewRedisCluster(hosts *[]map[string]interface{}) *RedisCluster {
+func NewRedisCluster(config *RedisClusterConfig) *RedisCluster {
 	cluster := &RedisCluster{
-		hosts: *hosts,
+		config: config,
 	}
-	n := len(*hosts)
+	n := len(config.Hosts)
 	pools := make([]*redis.Pool, n, n)
-	for i, host := range *hosts {
-		pool := &redis.Pool{
-			MaxIdle:     3,
-			IdleTimeout: 240 * time.Second,
-			Dial: func() (redis.Conn, error) {
-				conn, err := redis.Dial("tcp", host["address"].(string))
-				if err != nil {
-					return nil, err
-				}
-				if _, exists := host["auth"]; exists {
-					if _, err := conn.Do("AUTH", host["auth"].(string)); err != nil {
-						conn.Close()
+	for i, host := range config.Hosts {
+		func(host map[string]interface{}) {
+			pool := &redis.Pool{
+				MaxIdle:     3,
+				IdleTimeout: 240 * time.Second,
+				Dial: func() (redis.Conn, error) {
+					conn, err := redis.Dial("tcp", host["address"].(string))
+					if err != nil {
 						return nil, err
 					}
-				}
-				if _, exists := host["db"]; exists {
-					if _, err := conn.Do("SELECT", host["db"].(string)); err != nil {
-						conn.Close()
-						return nil, err
+					if _, exists := host["auth"]; exists {
+						if _, err := conn.Do("AUTH", host["auth"].(string)); err != nil {
+							conn.Close()
+							return nil, err
+						}
 					}
-				}
-				return conn, nil
-			},
-		}
-		pools[i] = pool
+					if _, exists := host["db"]; exists {
+						if _, err := conn.Do("SELECT", host["db"].(string)); err != nil {
+							conn.Close()
+							return nil, err
+						}
+					}
+					return conn, nil
+				},
+			}
+			pools[i] = pool
+		}(host)
 	}
 	cluster.pools = pools
 	return cluster
+}
+
+// Close closes the connection pools to the redis instances
+func (cluster *RedisCluster) Close() error {
+	for _, pool := range cluster.pools {
+		err := pool.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetQuorum returns the correct qorum necessary for acquiring the lock

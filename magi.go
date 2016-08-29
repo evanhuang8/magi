@@ -23,8 +23,11 @@ type Magi struct {
 }
 
 // Producer creates a Magi instance that acts as a producer
-func Producer(dqHosts *[]map[string]interface{}) (*Magi, error) {
-	dqCluster := cluster.NewDisqueCluster(dqHosts)
+func Producer(config *cluster.DisqueClusterConfig) (*Magi, error) {
+	dqCluster, err := cluster.NewDisqueCluster(config)
+	if err != nil {
+		return nil, err
+	}
 	producer := &Magi{
 		APIVersion: MagiAPIVersion,
 		dqCluster:  dqCluster,
@@ -33,15 +36,35 @@ func Producer(dqHosts *[]map[string]interface{}) (*Magi, error) {
 }
 
 // Consumer creates a Magi instance that acts as a consumer
-func Consumer(dqHosts *[]map[string]interface{}, rHosts *[]map[string]interface{}) *Magi {
-	dqCluster := cluster.NewDisqueCluster(dqHosts)
-	rCluster := cluster.NewRedisCluster(rHosts)
+func Consumer(dqConfig *cluster.DisqueClusterConfig, rConfig *cluster.RedisClusterConfig) (*Magi, error) {
+	dqCluster, err := cluster.NewDisqueCluster(dqConfig)
+	if err != nil {
+		return nil, err
+	}
+	rCluster := cluster.NewRedisCluster(rConfig)
 	consumer := &Magi{
 		APIVersion: MagiAPIVersion,
 		dqCluster:  dqCluster,
 		rCluster:   rCluster,
 	}
-	return consumer
+	return consumer, nil
+}
+
+// Close terminates all connections from the Magi instance
+func (m *Magi) Close() error {
+	if m.dqCluster != nil {
+		err := m.dqCluster.Close()
+		if err != nil {
+			return err
+		}
+	}
+	if m.rCluster != nil {
+		err := m.rCluster.Close()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 /**
@@ -49,14 +72,14 @@ func Consumer(dqHosts *[]map[string]interface{}, rHosts *[]map[string]interface{
  */
 
 // AddJob adds a job to the queue
-func (magi *Magi) AddJob(queueName string, body string, ETA time.Time, options *map[string]string) (*job.Job, error) {
-	_job, err := job.Add(magi.dqCluster, queueName, body, ETA, options)
+func (m *Magi) AddJob(queueName string, body string, ETA time.Time) (*job.Job, error) {
+	_job, err := job.Add(m.dqCluster, queueName, body, ETA, nil)
 	return _job, err
 }
 
 // GetJob tries to get the details about a job
-func (magi *Magi) GetJob(id string) (*job.Job, error) {
-	details, err := magi.dqCluster.Get(id)
+func (m *Magi) GetJob(id string) (*job.Job, error) {
+	details, err := m.dqCluster.Get(id)
 	if err != nil {
 		return nil, err
 	}
@@ -75,24 +98,18 @@ type Processor interface {
 }
 
 // Process starts the job processing procedure
-func (magi *Magi) Process(queueName string, concurrency int) {
-	var ids []string
-	var id string
-	var err error
-	timeout, _ := time.ParseDuration(BlockingTimeout)
+func (m *Magi) Process(queueName string) {
 	for {
-		ids, err = magi.dqCluster.Fetch(queueName, concurrency, timeout)
+		job, err := m.dqCluster.Fetch(queueName, nil)
 		if err != nil {
 			fmt.Println("Error:", err)
 		} else {
-			for _, id = range ids {
-				go magi.process(queueName, id)
-			}
+			go m.process(queueName, job.ID)
 		}
 	}
 }
 
-func (magi *Magi) process(queueName string, id string) {
+func (m *Magi) process(queueName string, id string) {
 	var _lock *lock.Lock
 	// Catch panics
 	defer func() {
@@ -106,17 +123,17 @@ func (magi *Magi) process(queueName string, id string) {
 		}
 	}()
 	// Check if the processor is available
-	processor, exists := magi.processors[queueName]
+	processor, exists := m.processors[queueName]
 	if !exists {
 		return
 	}
 	// Get job details
-	_job, err := magi.GetJob(id)
+	_job, err := m.GetJob(id)
 	if err != nil {
 		return
 	}
 	// Acquire lock
-	_lock = lock.CreateLock(magi.rCluster, id)
+	_lock = lock.CreateLock(m.rCluster, id)
 	result, err := _lock.Get((*processor).ShouldAutoRenew())
 	// If lock cannot be acquired, return and do not acknowledge
 	if err != nil {
@@ -128,7 +145,7 @@ func (magi *Magi) process(queueName string, id string) {
 	// Process the job
 	(*processor).Process(_job)
 	// Ack the job
-	result, err = magi.dqCluster.Ack(id)
+	err = m.dqCluster.Ack(id)
 	if err != nil {
 		return
 	}

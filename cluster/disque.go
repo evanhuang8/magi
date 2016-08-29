@@ -2,116 +2,105 @@ package cluster
 
 import (
 	"math/rand"
-	"time"
 
-	"golang.org/x/net/context"
-
-	"github.com/zencoder/disque-go/disque"
+	"github.com/goware/disque"
 )
 
 // DisqueCluster is a struct representing a disque cluster with multiple instances
 type DisqueCluster struct {
-	hosts     []map[string]interface{}
-	pools     []*disque.DisquePool
-	replicate int
+	pools  []*disque.Pool
+	config *DisqueClusterConfig
+}
+
+// DisqueClusterConfig is the config struct for creating a disque cluster
+type DisqueClusterConfig struct {
+	Hosts []map[string]interface{}
+}
+
+// DisqueOpConfig is the config struct for any disque operations
+type DisqueOpConfig struct {
+	disque.Config
 }
 
 // NewDisqueCluster creates disque connection pools to the cluster using hosts information
-func NewDisqueCluster(hosts *[]map[string]interface{}) *DisqueCluster {
-	n := len(*hosts)
+func NewDisqueCluster(config *DisqueClusterConfig) (*DisqueCluster, error) {
+	n := len(config.Hosts)
 	cluster := &DisqueCluster{
-		hosts:     *hosts,
-		replicate: len(*hosts),
+		config: config,
 	}
-	pools := make([]*disque.DisquePool, n, n)
-	var pool *disque.DisquePool
-	for i, host := range *hosts {
-		pool = disque.NewDisquePool(
-			[]string{
-				host["address"].(string),
-			},
-			1000,           // cycle
-			5,              // initial capacity
-			20,             // max capacity
-			15*time.Minute, // idle timeout
-		)
+	pools := make([]*disque.Pool, n, n)
+	for i, host := range config.Hosts {
+		pool, err := disque.New(host["address"].(string))
+		if err != nil {
+			return nil, err
+		}
 		pools[i] = pool
 	}
 	cluster.pools = pools
-	return cluster
+	return cluster, nil
 }
 
 // Close closes the disque connection pools to the disque cluster
-func (cluster *DisqueCluster) Close() {
+func (cluster *DisqueCluster) Close() error {
 	for _, pool := range cluster.pools {
-		pool.Close()
+		err := pool.Close()
+		if err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // Add adds a job to the disque cluster
-func (cluster *DisqueCluster) Add(queueName string, data string, timeout time.Duration, options *map[string]string) (id string, err error) {
+func (cluster *DisqueCluster) Add(queueName string, data string, config *DisqueOpConfig) (*disque.Job, error) {
 	pool := cluster.getPool()
-	conn, err := pool.Get(context.Background())
-	if err != nil {
-		return
+	if config != nil {
+		pool = pool.With(config.Config)
 	}
-	defer pool.Put(conn)
-	if _, val := (*options)["RETRY"]; val {
-		(*options)["RETRY"] = "5"
-	}
-	id, err = conn.PushWithOptions(queueName, data, timeout, *options)
-	return
+	job, err := pool.Add(data, queueName)
+	return job, err
 }
 
-// Get finds details of a job in the disque cluster
-func (cluster *DisqueCluster) Get(id string) (details *disque.JobDetails, err error) {
+// Get finds a job in the disque cluster by its id
+func (cluster *DisqueCluster) Get(id string) (*disque.Job, error) {
 	pool := cluster.getPool()
-	conn, err := pool.Get(context.Background())
-	if err != nil {
-		return
-	}
-	defer pool.Put(conn)
-	details, err = conn.GetJobDetails(id)
-	return
+	job, err := pool.Fetch(id)
+	return job, err
 }
 
 // Ack tries to ack a job as done in the disque cluster
-func (cluster *DisqueCluster) Ack(id string) (bool, error) {
+func (cluster *DisqueCluster) Ack(id string) error {
 	pool := cluster.getPool()
-	conn, err := pool.Get(context.Background())
-	if err != nil {
-		return false, err
+	job := &disque.Job{
+		ID: id,
 	}
-	defer pool.Put(conn)
-	err = conn.Ack(id)
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	err := pool.Ack(job)
+	return err
 }
 
-// Fetch receives job(s) from the disque cluster for processing
-func (cluster *DisqueCluster) Fetch(queueName string, count int, timeout time.Duration) ([]string, error) {
+// Nack tries to nack a job so that job is put back into the queue
+func (cluster *DisqueCluster) Nack(id string) error {
 	pool := cluster.getPool()
-	conn, err := pool.Get(context.Background())
-	if err != nil {
-		return nil, err
+	job := &disque.Job{
+		ID: id,
 	}
-	defer pool.Put(conn)
-	jobs, err := conn.FetchMultiple(queueName, count, timeout)
-	if err != nil {
-		return nil, err
+	err := pool.Nack(job)
+	return err
+}
+
+// Fetch receives job from the disque cluster for processing
+func (cluster *DisqueCluster) Fetch(queueName string, config *DisqueOpConfig) (*disque.Job, error) {
+	pool := cluster.getPool()
+	if config != nil {
+		pool = pool.With(config.Config)
 	}
-	ids := make([]string, 0, count)
-	for _, _job := range jobs {
-		ids = append(ids, _job.JobId)
-	}
-	return ids, nil
+	job, err := pool.Get(queueName)
+	return job, err
 }
 
 // Private functions
 
-func (cluster *DisqueCluster) getPool() *disque.DisquePool {
+func (cluster *DisqueCluster) getPool() *disque.Pool {
 	n := len(cluster.pools)
 	i := rand.Intn(n)
 	return cluster.pools[i]
