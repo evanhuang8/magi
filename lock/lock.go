@@ -169,7 +169,6 @@ func (lock *Lock) Get(ar bool) (bool, error) {
 		if ar {
 			lock.StartAutoRenew()
 		}
-		// Otherwise, start auto renew timer
 		return true, nil
 	}
 	// Failed to acquire lock after maximum attempts

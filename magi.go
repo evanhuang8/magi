@@ -17,10 +17,19 @@ var BlockingTimeout = "5s"
 // Magi represents the top level queue application
 type Magi struct {
 	APIVersion string
-	dqCluster  *cluster.DisqueCluster
-	rCluster   *cluster.RedisCluster
-	processors map[string]*Processor
+
+	dqCluster *cluster.DisqueCluster
+	rCluster  *cluster.RedisCluster
+
+	processors     map[string]*Processor
+	isProcessing   bool
+	processControl chan string
 }
+
+var (
+	// MagiProcessCommandStop is the command for stopping the processor
+	MagiProcessCommandStop = "STOP"
+)
 
 // Producer creates a Magi instance that acts as a producer
 func Producer(config *cluster.DisqueClusterConfig) (*Magi, error) {
@@ -29,8 +38,9 @@ func Producer(config *cluster.DisqueClusterConfig) (*Magi, error) {
 		return nil, err
 	}
 	producer := &Magi{
-		APIVersion: MagiAPIVersion,
-		dqCluster:  dqCluster,
+		APIVersion:   MagiAPIVersion,
+		dqCluster:    dqCluster,
+		isProcessing: false,
 	}
 	return producer, nil
 }
@@ -43,9 +53,12 @@ func Consumer(dqConfig *cluster.DisqueClusterConfig, rConfig *cluster.RedisClust
 	}
 	rCluster := cluster.NewRedisCluster(rConfig)
 	consumer := &Magi{
-		APIVersion: MagiAPIVersion,
-		dqCluster:  dqCluster,
-		rCluster:   rCluster,
+		APIVersion:     MagiAPIVersion,
+		dqCluster:      dqCluster,
+		rCluster:       rCluster,
+		isProcessing:   false,
+		processors:     make(map[string]*Processor),
+		processControl: make(chan string, 1),
 	}
 	return consumer, nil
 }
@@ -63,6 +76,9 @@ func (m *Magi) Close() error {
 		if err != nil {
 			return err
 		}
+	}
+	if m.isProcessing {
+		m.processControl <- MagiProcessCommandStop
 	}
 	return nil
 }
@@ -97,16 +113,36 @@ type Processor interface {
 	ShouldAutoRenew() bool
 }
 
+// Register adds a processor for a queue
+func (m *Magi) Register(queueName string, processor Processor) {
+	m.processors[queueName] = &processor
+}
+
 // Process starts the job processing procedure
 func (m *Magi) Process(queueName string) {
+	m.isProcessing = true
 	for {
-		job, err := m.dqCluster.Fetch(queueName, nil)
-		if err != nil {
-			fmt.Println("Error:", err)
-		} else {
-			go m.process(queueName, job.ID)
+		select {
+		case command := <-m.processControl:
+			if command == MagiProcessCommandStop {
+				return
+			}
+		default:
+			job, err := m.dqCluster.Fetch(queueName, nil)
+			if err != nil {
+				if err.Error() != "no data available" {
+					fmt.Println("Error:", err)
+				}
+			} else {
+				go m.process(queueName, job.ID)
+			}
 		}
 	}
+}
+
+// IsProcessing returns whether it is currently processing jobs
+func (m *Magi) IsProcessing() bool {
+	return m.isProcessing
 }
 
 func (m *Magi) process(queueName string, id string) {
@@ -114,7 +150,8 @@ func (m *Magi) process(queueName string, id string) {
 	// Catch panics
 	defer func() {
 		if err := recover(); err != nil {
-			if err == lock.ErrLockLost {
+			err, ok := err.(error)
+			if ok && err.Error() == lock.ErrLockLost.Error() {
 				// Lock is lost, release remaining lock segments
 				_lock.Release()
 			} else {

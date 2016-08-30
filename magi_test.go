@@ -7,23 +7,25 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"magi/cluster"
+	"magi/job"
 	"magi/lock"
 )
 
-func FlushQueue() error {
+func FlushQueue() {
 	cmd := exec.Command("./test/disque/flush.sh")
 	err := cmd.Run()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	return nil
+	return
 }
 
 func TestMain(m *testing.M) {
@@ -33,8 +35,6 @@ func TestMain(m *testing.M) {
 	FlushQueue()
 	os.Exit(code)
 }
-
-var testQueue = "magi_test"
 
 var disqueHosts = []map[string]interface{}{
 	map[string]interface{}{
@@ -85,10 +85,11 @@ func TestProducer(t *testing.T) {
 	assert.Empty(err)
 	assert.NotEmpty(producer)
 	defer producer.Close()
+	queue := "jobq" + RandomKey()
 	// Add job
 	delay, _ := time.ParseDuration("10s")
 	eta := time.Now().Add(delay)
-	job, err := producer.AddJob(testQueue, "job1", eta)
+	job, err := producer.AddJob(queue, "job1", eta)
 	assert.Empty(err)
 	assert.NotEmpty(job)
 	assert.NotEmpty(job.ID)
@@ -336,6 +337,89 @@ func TestLockContestTrio(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		<-result
 	}
-	fmt.Println(acquired)
 	assert.True(acquired <= 1)
+}
+
+type DummyProcessor struct {
+	Bodies []string
+	mutex  sync.Mutex
+}
+
+func (p *DummyProcessor) Process(job *job.Job) (interface{}, error) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.Bodies = append(p.Bodies, job.Body+"dummy")
+	return true, nil
+}
+
+func (p *DummyProcessor) ShouldAutoRenew() bool {
+	return true
+}
+
+func TestConsumer(t *testing.T) {
+	assert := assert.New(t)
+	FlushQueue()
+	// Instantiation
+	consumer, err := Consumer(dqConfig, rConfig)
+	assert.Empty(err)
+	assert.NotEmpty(consumer)
+	defer consumer.Close()
+	queue := "jobq" + RandomKey()
+	// Setup the processor
+	p := &DummyProcessor{}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
+	// Add a job
+	job, err := consumer.AddJob(queue, "job2", time.Now())
+	assert.Empty(err)
+	assert.NotEmpty(job)
+	assert.NotEmpty(job.ID)
+	assert.Equal(job.Body, "job2")
+	// Wait for it to be processed
+	time.Sleep(2 * time.Second)
+	assert.Equal(p.Bodies[0], job.Body+"dummy")
+}
+
+func TestConsumerThroughPut(t *testing.T) {
+	assert := assert.New(t)
+	FlushQueue()
+	// Instantiation
+	consumer, err := Consumer(dqConfig, rConfig)
+	assert.Empty(err)
+	assert.NotEmpty(consumer)
+	defer consumer.Close()
+	queue := "jobq" + RandomKey()
+	// Setup the processor
+	p := &DummyProcessor{}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
+	// Add jobs
+	bodies := make([]string, 10)
+	for i := 0; i < 10; i++ {
+		body := RandomKey()
+		job, err := consumer.AddJob(queue, body, time.Now())
+		assert.Empty(err)
+		assert.NotEmpty(job)
+		assert.NotEmpty(job.ID)
+		assert.Equal(job.Body, body)
+		bodies = append(bodies, body)
+	}
+	// Wait for it to be processed
+	time.Sleep(5 * time.Second)
+	assert.Equal(len(p.Bodies), 10)
+	for _, body := range bodies {
+		isProcessed := false
+		for _, _body := range p.Bodies {
+			if body == _body {
+				isProcessed = true
+			}
+		}
+		assert.True(isProcessed)
+	}
 }
