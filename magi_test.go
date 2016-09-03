@@ -372,7 +372,7 @@ func (p *DummyProcessor) Process(job *job.Job) (interface{}, error) {
 	return true, nil
 }
 
-func (p *DummyProcessor) ShouldAutoRenew() bool {
+func (p *DummyProcessor) ShouldAutoRenew(job *job.Job) bool {
 	return true
 }
 

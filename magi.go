@@ -110,7 +110,7 @@ func (m *Magi) GetJob(id string) (*job.Job, error) {
 // Processor is an interface that all job processor should implement
 type Processor interface {
 	Process(*job.Job) (interface{}, error)
-	ShouldAutoRenew() bool
+	ShouldAutoRenew(*job.Job) bool
 }
 
 // Register adds a processor for a queue
@@ -173,7 +173,7 @@ func (m *Magi) process(queueName string, id string) {
 	}
 	// Acquire lock
 	_lock = lock.CreateLock(m.rCluster, id)
-	result, err := _lock.Get((*processor).ShouldAutoRenew())
+	result, err := _lock.Get((*processor).ShouldAutoRenew(_job))
 	// If lock cannot be acquired, return and do not acknowledge
 	if err != nil {
 		return

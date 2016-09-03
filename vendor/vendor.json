@@ -21,10 +21,12 @@
 			"revisionTime": "2016-08-10T23:49:51Z"
 		},
 		{
-			"checksumSHA1": "1qEfwQ01FE/BLrHsrZBs/uzNyBM=",
+			"checksumSHA1": "0kfSQWv9vCw+hJpajVDojc/Y6vk=",
+			"origin": "github.com/evanhuang8/disque",
 			"path": "github.com/goware/disque",
-			"revision": "6edc6e9601e520530461abc04bf9d3b9ecd6b0ab",
-			"revisionTime": "2016-08-24T14:40:10Z"
+			"revision": "409dfd6c21c60366224c1a052fc52199cbe9e5ac",
+			"revisionTime": "2016-08-28T16:33:37Z",
+			"tree": true
 		},
 		{
 			"checksumSHA1": "LuFv4/jlrmFNnDb/5SCSEPAM9vU=",
