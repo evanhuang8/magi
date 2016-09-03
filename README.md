@@ -121,7 +121,7 @@ consumer.Close()
 
 For consumer especially, it will wait for the current job batch to finish, and then stop the processing.
 
-### LICENSE
+## License
 
 BSD License
 
