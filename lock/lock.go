@@ -299,6 +299,8 @@ func (lock *Lock) StopAutoRenew() bool {
 
 // Auto renew timer
 func (lock *Lock) autoRenew() {
+	// Start the renewal ticker
+	start := time.Now()
 	// Run timer until otherwise told
 	for {
 		// Check commands
@@ -311,22 +313,26 @@ func (lock *Lock) autoRenew() {
 				return
 			}
 		default:
-			// Sleep till next renewal
-			sleepDuration := time.Duration(int64(float64(lock.Duration) * 0.5))
-			time.Sleep(sleepDuration)
-			// After wake up, check if lock is released
+			// Check if lock is released
 			if lock.value == "" {
 				return
 			}
-			// Extend lock
-			result, err := lock.extend(lock.Duration)
-			if err != nil {
-				fmt.Println(err)
-				panic(ErrLockLost)
+			// Extend lock if time is past the duration midpoint
+			elapse := float64(time.Now().Sub(start))
+			threshold := float64(lock.Duration) * 0.5
+			if elapse >= threshold {
+				result, err := lock.extend(lock.Duration)
+				if err != nil {
+					fmt.Println(err)
+					panic(ErrLockLost)
+				}
+				if !result {
+					panic(ErrLockLost)
+				}
+				// Reset ticker
+				start = time.Now()
 			}
-			if !result {
-				panic(ErrLockLost)
-			}
+			time.Sleep(time.Millisecond)
 		}
 	}
 }

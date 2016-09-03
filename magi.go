@@ -88,8 +88,8 @@ func (m *Magi) Close() error {
  */
 
 // AddJob adds a job to the queue
-func (m *Magi) AddJob(queueName string, body string, ETA time.Time) (*job.Job, error) {
-	_job, err := job.Add(m.dqCluster, queueName, body, ETA, nil)
+func (m *Magi) AddJob(queueName string, body string, ETA time.Time, config *cluster.DisqueOpConfig) (*job.Job, error) {
+	_job, err := job.Add(m.dqCluster, queueName, body, ETA, config)
 	return _job, err
 }
 
@@ -128,14 +128,16 @@ func (m *Magi) Process(queueName string) {
 				return
 			}
 		default:
+			m.dqCluster.Chain()
 			job, err := m.dqCluster.Fetch(queueName, nil)
 			if err != nil {
 				if err.Error() != "no data available" {
 					fmt.Println("Error:", err)
 				}
 			} else {
-				go m.process(queueName, job.ID)
+				m.process(queueName, job.ID)
 			}
+			m.dqCluster.Unchain()
 		}
 	}
 }

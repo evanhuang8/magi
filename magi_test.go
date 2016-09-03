@@ -52,6 +52,16 @@ var dqConfig = &cluster.DisqueClusterConfig{
 	Hosts: disqueHosts,
 }
 
+var disqueHostsSingle = []map[string]interface{}{
+	map[string]interface{}{
+		"address": "127.0.0.1:7711",
+	},
+}
+
+var dqsConfig = &cluster.DisqueClusterConfig{
+	Hosts: disqueHostsSingle,
+}
+
 var redisHosts = []map[string]interface{}{
 	map[string]interface{}{
 		"address": "127.0.0.1:7777",
@@ -66,6 +76,16 @@ var redisHosts = []map[string]interface{}{
 
 var rConfig = &cluster.RedisClusterConfig{
 	Hosts: redisHosts,
+}
+
+var redisHostsSingle = []map[string]interface{}{
+	map[string]interface{}{
+		"address": "127.0.0.1:7777",
+	},
+}
+
+var rsConfig = &cluster.RedisClusterConfig{
+	Hosts: redisHostsSingle,
 }
 
 func RandomKey() string {
@@ -89,7 +109,7 @@ func TestProducer(t *testing.T) {
 	// Add job
 	delay, _ := time.ParseDuration("10s")
 	eta := time.Now().Add(delay)
-	job, err := producer.AddJob(queue, "job1", eta)
+	job, err := producer.AddJob(queue, "job1", eta, nil)
 	assert.Empty(err)
 	assert.NotEmpty(job)
 	assert.NotEmpty(job.ID)
@@ -365,6 +385,12 @@ func TestConsumer(t *testing.T) {
 	assert.NotEmpty(consumer)
 	defer consumer.Close()
 	queue := "jobq" + RandomKey()
+	// Add a job
+	job, err := consumer.AddJob(queue, "job2", time.Now(), nil)
+	assert.Empty(err)
+	assert.NotEmpty(job)
+	assert.NotEmpty(job.ID)
+	assert.Equal(job.Body, "job2")
 	// Setup the processor
 	p := &DummyProcessor{}
 	consumer.Register(queue, p)
@@ -372,15 +398,57 @@ func TestConsumer(t *testing.T) {
 	go consumer.Process(queue)
 	time.Sleep(2 * time.Second)
 	assert.True(consumer.IsProcessing())
-	// Add a job
-	job, err := consumer.AddJob(queue, "job2", time.Now())
+	// Wait for it to be processed
+	time.Sleep(1 * time.Second)
+	assert.Equal(p.Bodies[0], job.Body+"dummy")
+}
+
+func TestConsumerThroughPutSingleQueue(t *testing.T) {
+	assert := assert.New(t)
+	FlushQueue()
+	// Instantiation
+	consumer, err := Consumer(dqsConfig, rConfig)
 	assert.Empty(err)
-	assert.NotEmpty(job)
-	assert.NotEmpty(job.ID)
-	assert.Equal(job.Body, "job2")
+	assert.NotEmpty(consumer)
+	defer consumer.Close()
+	queue := "jobq" + RandomKey()
+	// Add jobs
+	n := 100
+	bodies := make([]string, 0, n)
+	eta := time.Now()
+	conf := &cluster.DisqueOpConfig{
+		Replicate: 1,
+	}
+	for i := 0; i < n; i++ {
+		body := RandomKey()
+		job, err := consumer.AddJob(queue, body, eta, conf)
+		assert.Empty(err)
+		assert.NotEmpty(job)
+		assert.NotEmpty(job.ID)
+		assert.Equal(job.Body, body)
+		bodies = append(bodies, body)
+	}
+	// Setup the processor
+	p := &DummyProcessor{
+		Bodies: make([]string, 0, n),
+	}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
 	// Wait for it to be processed
 	time.Sleep(2 * time.Second)
-	assert.Equal(p.Bodies[0], job.Body+"dummy")
+	assert.Equal(len(p.Bodies), n)
+	for _, body := range bodies {
+		isProcessed := false
+		for _, _body := range p.Bodies {
+			if body+"dummy" == _body {
+				isProcessed = true
+			}
+		}
+		assert.True(isProcessed)
+	}
 }
 
 func TestConsumerThroughPut(t *testing.T) {
@@ -392,31 +460,35 @@ func TestConsumerThroughPut(t *testing.T) {
 	assert.NotEmpty(consumer)
 	defer consumer.Close()
 	queue := "jobq" + RandomKey()
-	// Setup the processor
-	p := &DummyProcessor{}
-	consumer.Register(queue, p)
-	// Kick off processing
-	go consumer.Process(queue)
-	time.Sleep(2 * time.Second)
-	assert.True(consumer.IsProcessing())
 	// Add jobs
-	bodies := make([]string, 10)
-	for i := 0; i < 10; i++ {
+	n := 100
+	bodies := make([]string, 0, n)
+	eta := time.Now()
+	for i := 0; i < n; i++ {
 		body := RandomKey()
-		job, err := consumer.AddJob(queue, body, time.Now())
+		job, err := consumer.AddJob(queue, body, eta, nil)
 		assert.Empty(err)
 		assert.NotEmpty(job)
 		assert.NotEmpty(job.ID)
 		assert.Equal(job.Body, body)
 		bodies = append(bodies, body)
 	}
+	// Setup the processor
+	p := &DummyProcessor{
+		Bodies: make([]string, 0, n),
+	}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
 	// Wait for it to be processed
-	time.Sleep(5 * time.Second)
-	assert.Equal(len(p.Bodies), 10)
+	time.Sleep(3 * time.Second)
+	assert.Equal(len(p.Bodies), n)
 	for _, body := range bodies {
 		isProcessed := false
 		for _, _body := range p.Bodies {
-			if body == _body {
+			if body+"dummy" == _body {
 				isProcessed = true
 			}
 		}
