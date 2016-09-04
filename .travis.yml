@@ -16,3 +16,4 @@ before_install:
 
 install:
     - govendor sync
+
