@@ -7,6 +7,9 @@ go:
 
 go_import_path: github.com/evanhuang8/magi
 
+services:
+    - redis-server
+
 before_install:
     - ./test/disque/travis/travis.sh
     - go get -u github.com/kardianos/govendor
