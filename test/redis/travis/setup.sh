@@ -36,6 +36,6 @@ sudo service redis1 start
 sudo service redis2 start
 sudo service redis3 start
 
-sleep 9
+sleep 3
 
 echo "Finished."
