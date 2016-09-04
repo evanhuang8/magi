@@ -2,9 +2,9 @@ package job
 
 import (
 	"encoding/json"
-	"magi/cluster"
 	"time"
 
+	"github.com/evanhuang8/magi/cluster"
 	"github.com/goware/disque"
 )
 

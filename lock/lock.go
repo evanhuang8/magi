@@ -42,8 +42,7 @@ import (
 	"sync"
 	"time"
 
-	"magi/cluster"
-
+	"github.com/evanhuang8/magi/cluster"
 	"github.com/garyburd/redigo/redis"
 )
 

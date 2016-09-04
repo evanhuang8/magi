@@ -13,9 +13,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"magi/cluster"
-	"magi/job"
-	"magi/lock"
+	"github.com/evanhuang8/magi/cluster"
+	"github.com/evanhuang8/magi/job"
+	"github.com/evanhuang8/magi/lock"
 )
 
 func FlushQueue() {
