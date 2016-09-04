@@ -1,6 +1,9 @@
 # Magi
 
-![Magi - Evangelion](https://raw.githubusercontent.com/evanhuang8/Magi/images/images/magi.gif)
+[![Build Status](https://travis-ci.org/evanhuang8/magi.svg?branch=master)](https://travis-ci.org/evanhuang8/magi)
+[![GoDoc](https://godoc.org/github.com/evanhuang8/magi?status.png)](https://godoc.org/github.com/evanhuang8/magi)
+
+![Magi - Evangelion](https://raw.githubusercontent.com/evanhuang8/magi/images/images/magi.gif)
 
 A scalable, distributed delay task queue building on top of [**disque**](https://github.com/antirez/disque) and [**redis**](http://redis.io/). You can read about the implementation proposal [here](./PROPOSAL.md).
 
