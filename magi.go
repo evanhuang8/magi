@@ -2,10 +2,11 @@ package magi
 
 import (
 	"fmt"
-	"magi/cluster"
-	"magi/job"
-	"magi/lock"
 	"time"
+
+	"github.com/evanhuang8/magi/cluster"
+	"github.com/evanhuang8/magi/job"
+	"github.com/evanhuang8/magi/lock"
 )
 
 // MagiAPIVersion is the current API version
