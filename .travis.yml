@@ -2,3 +2,10 @@ language: go
 
 go:
     - 1.7
+
+before_install:
+    - ./test/disque/travis/travis.sh
+    - go get -u github.com/kardianos/govendor
+
+install:
+    - govendor sync
