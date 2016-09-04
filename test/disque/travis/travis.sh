@@ -16,6 +16,7 @@ rm -f ${DQPATH}/nodes-*.conf
 
 # Run 3 instances
 
+cat ${DQPATH}/node1.conf
 ${DQPATH}/src/disque/src/disque-server ${DQPATH}/node1.conf
 ${DQPATH}/src/disque/src/disque-server ${DQPATH}/node2.conf
 ${DQPATH}/src/disque/src/disque-server ${DQPATH}/node3.conf
