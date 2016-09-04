@@ -1,5 +1,6 @@
 #!/bin/bash
 
+set -e
 DQPATH=${TRAVIS_BUILD_DIR}/tests/disque/travis
 
 # Install disque

@@ -1,3 +1,5 @@
+sudo: required
+
 language: go
 
 go:
@@ -9,4 +11,3 @@ before_install:
 
 install:
     - govendor sync
-    
