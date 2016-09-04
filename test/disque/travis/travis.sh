@@ -12,7 +12,7 @@ make
 
 # Remove existing files
 
-rm ${DQPATH}/nodes-*.conf
+rm -f ${DQPATH}/nodes-*.conf
 
 # Run 3 instances
 
