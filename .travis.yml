@@ -5,6 +5,8 @@ language: go
 go:
     - 1.7
 
+go_import_path: github.com/evanhuang8/magi
+
 before_install:
     - ./test/disque/travis/travis.sh
     - go get -u github.com/kardianos/govendor
