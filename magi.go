@@ -204,6 +204,6 @@ func (m *Magi) process(queueName string, id string) {
 }
 
 // AckJob sends an ACK for the job to the disque cluster
-func AckJob(job *job.Job) (bool, error) {
+func (m *Magi) AckJob(job *job.Job) (bool, error) {
 	return true, nil
 }
