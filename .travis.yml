@@ -11,7 +11,8 @@ services:
     - redis-server
 
 before_install:
-    - ./test/disque/travis/travis.sh
+    - ./test/disque/travis/setup.sh
+    - ./test/redis/travis/setup.sh
     - go get -u github.com/kardianos/govendor
 
 install:
