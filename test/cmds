@@ -1,0 +1,3 @@
+./disque/run.sh
+./redis/run.sh
+sleep 3 && ./disque/join.sh

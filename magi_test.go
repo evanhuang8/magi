@@ -495,3 +495,118 @@ func TestConsumerThroughPut(t *testing.T) {
 		assert.True(isProcessed)
 	}
 }
+
+func TestConsumerDelay(t *testing.T) {
+	assert := assert.New(t)
+	FlushQueue()
+	// Instantiation
+	consumer, err := Consumer(dqConfig, rConfig)
+	assert.Empty(err)
+	assert.NotEmpty(consumer)
+	defer consumer.Close()
+	queue := "jobq" + RandomKey()
+	// Add delay job
+	eta := time.Now().Add(5 * time.Second)
+	body := RandomKey()
+	job, err := consumer.AddJob(queue, body, eta, nil)
+	assert.Empty(err)
+	assert.NotEmpty(job)
+	assert.NotEmpty(job.ID)
+	assert.Equal(job.Body, body)
+	// Setup the processor
+	p := &DummyProcessor{
+		Bodies: make([]string, 0, 1),
+	}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
+	// Check delay behavior
+	time.Sleep(time.Second)
+	assert.Equal(len(p.Bodies), 0)
+	time.Sleep(2 * time.Second)
+	assert.Equal(len(p.Bodies), 1)
+	assert.Equal(p.Bodies[0], body+"dummy")
+}
+
+func TestConsumerDelayDelete(t *testing.T) {
+	assert := assert.New(t)
+	FlushQueue()
+	// Instantiation
+	consumer, err := Consumer(dqConfig, rConfig)
+	assert.Empty(err)
+	assert.NotEmpty(consumer)
+	defer consumer.Close()
+	queue := "jobq" + RandomKey()
+	// Add delay job
+	eta := time.Now().Add(5 * time.Second)
+	body := RandomKey()
+	job, err := consumer.AddJob(queue, body, eta, nil)
+	assert.Empty(err)
+	assert.NotEmpty(job)
+	assert.NotEmpty(job.ID)
+	assert.Equal(job.Body, body)
+	// Setup the processor
+	p := &DummyProcessor{
+		Bodies: make([]string, 0, 1),
+	}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
+	// Check delay behavior
+	time.Sleep(time.Second)
+	assert.Equal(len(p.Bodies), 0)
+	// Delete job
+	result, err := consumer.DeleteJob(job.ID)
+	assert.Empty(err)
+	assert.True(result)
+	// Job should not be processed
+	time.Sleep(2 * time.Second)
+	assert.Equal(len(p.Bodies), 0)
+	// Get job
+	_job, err := consumer.GetJob(job.ID)
+	assert.Empty(err)
+	assert.Empty(_job)
+}
+
+func TestConsumerDelayOrder(t *testing.T) {
+	assert := assert.New(t)
+	FlushQueue()
+	// Instantiation
+	consumer, err := Consumer(dqsConfig, rConfig)
+	assert.Empty(err)
+	assert.NotEmpty(consumer)
+	defer consumer.Close()
+	queue := "jobq" + RandomKey()
+	// Add jobs
+	n := 20
+	bodies := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		body := RandomKey()
+		eta := time.Now().Add(time.Duration(i*100) * time.Millisecond)
+		job, err := consumer.AddJob(queue, body, eta, nil)
+		assert.Empty(err)
+		assert.NotEmpty(job)
+		assert.NotEmpty(job.ID)
+		assert.Equal(job.Body, body)
+		bodies = append(bodies, body)
+	}
+	// Setup the processor
+	p := &DummyProcessor{
+		Bodies: make([]string, 0, n),
+	}
+	consumer.Register(queue, p)
+	// Kick off processing
+	go consumer.Process(queue)
+	time.Sleep(2 * time.Second)
+	assert.True(consumer.IsProcessing())
+	// Wait for it to be processed
+	time.Sleep(5 * time.Second)
+	assert.Equal(len(p.Bodies), n)
+	for i, body := range bodies {
+		assert.Equal(p.Bodies[i], body+"dummy")
+	}
+}

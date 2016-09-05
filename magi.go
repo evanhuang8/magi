@@ -98,6 +98,9 @@ func (m *Magi) AddJob(queueName string, body string, ETA time.Time, config *clus
 func (m *Magi) GetJob(id string) (*job.Job, error) {
 	details, err := m.dqCluster.Get(id)
 	if err != nil {
+		if err.Error() == "no data available" {
+			return nil, nil
+		}
 		return nil, err
 	}
 	_job, err := job.FromDetails(details)
@@ -203,7 +206,11 @@ func (m *Magi) process(queueName string, id string) {
 	return
 }
 
-// AckJob sends an ACK for the job to the disque cluster
-func (m *Magi) AckJob(job *job.Job) (bool, error) {
+// DeleteJob removes the job from the disque cluster
+func (m *Magi) DeleteJob(id string) (bool, error) {
+	err := m.dqCluster.Ack(id)
+	if err != nil {
+		return false, err
+	}
 	return true, nil
 }
