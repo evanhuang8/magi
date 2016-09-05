@@ -18,3 +18,4 @@ before_install:
 install:
     - govendor sync
 
+script: go test -v .
