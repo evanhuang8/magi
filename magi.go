@@ -1,6 +1,7 @@
 package magi
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -107,6 +108,15 @@ func (m *Magi) GetJob(id string) (*job.Job, error) {
 	return _job, err
 }
 
+// DeleteJob removes the job from the disque cluster
+func (m *Magi) DeleteJob(id string) (bool, error) {
+	err := m.dqCluster.Ack(id)
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 /**
  * Consumer methods
  */
@@ -151,6 +161,9 @@ func (m *Magi) IsProcessing() bool {
 	return m.isProcessing
 }
 
+// ErrDisqueJobWaitFailed is the error for failing to wait on a long processing job
+var ErrDisqueJobWaitFailed = errors.New("Disque Error: fail to wait on a job!")
+
 func (m *Magi) process(queueName string, id string) {
 	var _lock *lock.Lock
 	// Catch panics
@@ -185,8 +198,15 @@ func (m *Magi) process(queueName string, id string) {
 	if !result {
 		return
 	}
+	// Start the auto wait extension for the job in queue
+	control := make(chan bool, 1)
+	_job.IsProcessing = true
+	go m.autoWait(_job, &control)
 	// Process the job
 	(*processor).Process(_job)
+	// Stop the auto wait extension
+	_job.IsProcessing = false
+	control <- true
 	// Ack the job
 	err = m.dqCluster.Ack(id)
 	if err != nil {
@@ -206,11 +226,32 @@ func (m *Magi) process(queueName string, id string) {
 	return
 }
 
-// DeleteJob removes the job from the disque cluster
-func (m *Magi) DeleteJob(id string) (bool, error) {
-	err := m.dqCluster.Ack(id)
-	if err != nil {
-		return false, err
+func (m *Magi) autoWait(job *job.Job, control *chan bool) {
+	start := time.Now()
+	for {
+		select {
+		case command := <-*control:
+			if command {
+				return
+			}
+		default:
+			if !job.IsProcessing {
+				return
+			}
+			// Check if a wait command is needed
+			elapse := float64(time.Now().Sub(start))
+			threshold := float64(job.Raw.Retry) * 0.5
+			if elapse >= threshold {
+				// Issue wait
+				err := m.dqCluster.Wait(job.ID)
+				if err != nil {
+					fmt.Println(err)
+					panic(ErrDisqueJobWaitFailed)
+				}
+				// Reset ticker
+				start = time.Now()
+			}
+			time.Sleep(time.Millisecond)
+		}
 	}
-	return true, nil
 }

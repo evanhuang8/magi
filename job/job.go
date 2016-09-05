@@ -13,13 +13,14 @@ var JobTimeout = "2s"
 
 // Job represents a job
 type Job struct {
-	ID        string
-	QueueName string
-	Body      string
-	ETA       time.Time
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	Raw       *disque.Job
+	ID           string
+	QueueName    string
+	Body         string
+	ETA          time.Time
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
+	IsProcessing bool
+	Raw          *disque.Job
 }
 
 func (job *Job) String() string {

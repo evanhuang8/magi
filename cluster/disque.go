@@ -127,6 +127,16 @@ func (cluster *DisqueCluster) Nack(id string) error {
 	return err
 }
 
+// Wait tries to extend a job's processing status
+func (cluster *DisqueCluster) Wait(id string) error {
+	pool := cluster.getPool()
+	job := &disque.Job{
+		ID: id,
+	}
+	err := pool.Wait(job)
+	return err
+}
+
 // Fetch receives job from the disque cluster for processing
 func (cluster *DisqueCluster) Fetch(queueName string, config *DisqueOpConfig) (*disque.Job, error) {
 	pool := cluster.getPool()
