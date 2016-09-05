@@ -196,7 +196,7 @@ func TestProcessingMultipleQueues(t *testing.T) {
 	bodies := make([]string, 0, n)
 	eta := time.Now()
 	conf := &cluster.DisqueOpConfig{
-		Replicate: 1,
+		Replicate: 3,
 	}
 	for i := 0; i < n; i++ {
 		body := RandomKey()
@@ -220,6 +220,12 @@ func TestProcessingMultipleQueues(t *testing.T) {
 	end := time.Now()
 	delta := end.Sub(start)
 	assert.Equal(len(p.Bodies), n)
+	hash := make(map[string]bool)
+	for _, body := range p.Bodies {
+		_, exists := hash[body]
+		assert.False(exists)
+		hash[body] = true
+	}
 	for _, body := range bodies {
 		isProcessed := false
 		for _, _body := range p.Bodies {
@@ -290,6 +296,12 @@ func TestProcessingMultipleConsumer(t *testing.T) {
 	end := time.Now()
 	delta := end.Sub(start)
 	assert.Equal(len(p.Bodies), n)
+	hash := make(map[string]bool)
+	for _, body := range p.Bodies {
+		_, exists := hash[body]
+		assert.False(exists)
+		hash[body] = true
+	}
 	for _, body := range bodies {
 		isProcessed := false
 		for _, _body := range p.Bodies {
